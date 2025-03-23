@@ -139,7 +139,7 @@ begin
             bank                <= #1 2'b00;
             ready               <= #1 1'b0;
             
-            ctr_reset           <= #1 1'b0;
+            ctr_reset           <= #1 1'b1;
         end
         8'b00000010:
         begin            

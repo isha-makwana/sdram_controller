@@ -61,6 +61,21 @@ module sdram_controller_tb;
     .DRAM_WE_N(DRAM_WE_N)
   );
 
+
+//sdram chip called here (new addition after commit)
+  mock_sdram sdram_chip (
+    .clk(iclk),
+    .cs_n(DRAM_CS_N),
+    .ras_n(DRAM_RAS_N),
+    .cas_n(DRAM_CAS_N),
+    .we_n(DRAM_WE_N),
+    .ba(DRAM_BA),
+    .addr(DRAM_ADDR),
+    .dq(DRAM_DQ),
+    .ldqm(DRAM_LDQM),
+    .udqm(DRAM_UDQM)
+  );
+
   // Clock generation (100 MHz)
   always #5 iclk = ~iclk;
 
