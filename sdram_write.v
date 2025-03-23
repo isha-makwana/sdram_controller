@@ -24,7 +24,9 @@ module sdram_write(
 	output		          		DRAM_WE_N,
     output		          		DRAM_LDQM,
     output		          		DRAM_UDQM,
-    output 		    [15:0]		DRAM_DQ
+    output 		    [15:0]		DRAM_DQ,
+    output                  [15:0]              write_data_out,
+    output					write_enable
 );
 
 reg      [6:0]  state       = 7'b0000001;
@@ -44,6 +46,8 @@ reg             ctr_reset   = 0;
 wire    data_count;
 
 assign ofin                                             = ready;
+assign write_data_out   				= data[127:112];     // Most significant 16 bits
+assign write_enable   					= ienb && (state == 7'b0010000); // Drive only in WRITING state
 
 assign DRAM_ADDR                                        = ienb ? address        : 13'bz;
 assign DRAM_BA                                          = ienb ? bank           : 2'bz;

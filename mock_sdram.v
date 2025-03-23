@@ -1,3 +1,4 @@
+`timescale 1ns / 1ps
 
 module mock_sdram (
     input         clk,
@@ -12,57 +13,67 @@ module mock_sdram (
     input         udqm
 );
 
-    // Very small mock memory: 2 banks x 8 rows x 16 cols
-    reg [15:0] mem [0:1][0:7][0:15];
-
-    reg [12:0] active_row [0:1];
     reg [3:0]  col_latched;
-    reg [2:0]  burst_counter = 0;
+    reg [3:0]  burst_counter = 0;
 
     reg [15:0] dq_out = 16'hzzzz;
     reg        dq_drive_en = 0;
     reg        reading = 0;
+    reg        delay_read = 0;
+
+    reg        last_cas_n;
+    reg        last_we_n;
 
     assign dq = dq_drive_en ? dq_out : 16'bz;
 
     always @(posedge clk) begin
+        last_cas_n <= cas_n;
+        last_we_n  <= we_n;
+
         if (!cs_n) begin
             // ACTIVE command
             if (!ras_n && cas_n && we_n) begin
-                active_row[ba] <= addr;
                 reading <= 0;
                 dq_drive_en <= 0;
+                delay_read <= 0;
+                $display("[mock_sdram] ACTIVE command at %0t", $time);
             end
 
-            // WRITE command
+            // WRITE command ? do nothing, just print
             else if (!ras_n && !cas_n && !we_n) begin
+                $display("[mock_sdram] WRITE command at %0t", $time);
+            end
+
+            // READ command - rising edge detect
+            else if (ras_n && !cas_n && we_n && (last_cas_n || !last_we_n)) begin
                 col_latched <= addr[3:0];
+                burst_counter <= 0;
+                delay_read <= 1;
+                dq_out <= 16'hABCD;  // preload with known value
+                $display("[mock_sdram] READ command detected. Preparing to drive DQ @ %0t", $time);
+            end
+        end
+
+        // Delay to simulate CAS latency
+        if (delay_read) begin
+            dq_drive_en <= 1;
+            reading <= 1;
+            delay_read <= 0;
+        end else if (!reading) begin
+            dq_drive_en <= 0;
+        end
+
+        // Mock burst read (8-beat limit)
+        if (reading && dq_drive_en) begin
+            dq_out <= 16'hABCD + burst_counter;
+            $display("[mock_sdram] Driving DQ = %h (burst %0d) @ %0t", dq_out, burst_counter, $time);
+            burst_counter <= burst_counter + 1;
+
+            if (burst_counter == 8) begin
                 reading <= 0;
                 dq_drive_en <= 0;
-                burst_counter <= 0;
-            end
-
-            // READ command
-            else if (!ras_n && !cas_n && we_n) begin
-                col_latched <= addr[3:0];
-                reading <= 1;
-                dq_drive_en <= 1;
-                burst_counter <= 0;
-                $display("[mock_sdram] READ triggered at time %0t", $time);
-            end
-        end
-
-        // On each clock, either drive DQ (read) or latch it (write)
-        if (reading) begin
-            dq_out <= mem[ba][active_row[ba]][col_latched + burst_counter];
-            burst_counter <= burst_counter + 1;
-        end
-        else begin
-            dq_drive_en <= 0;
-            if (!cs_n && !ras_n && !cas_n && !we_n) begin
-                mem[ba][active_row[ba]][col_latched + burst_counter] <= dq;
-                burst_counter <= burst_counter + 1;
-                $display("[mock_sdram] WRITE data[%0d]: %h at time %0t", burst_counter, dq, $time);
+                dq_out <= 16'hzzzz;
+                $display("[mock_sdram] End of 8-beat burst. Releasing DQ @ %0t", $time);
             end
         end
     end
