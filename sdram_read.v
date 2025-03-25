@@ -53,7 +53,7 @@ reg [7:0] counter = 0;
 reg ctr_reset = 0;
 
 assign dqm_count  = (counter < 5);
-assign data_count = (counter == 8);  // <-- was 7 before
+assign data_count = (counter == 9);  // <-- was 7 before
 
 always @(posedge iclk or posedge ctr_reset) begin
     if (ctr_reset)
@@ -149,14 +149,14 @@ always @(state or counter) begin
             read_act    <= 1'b1;
 
             case (counter)
-                0: data[127:112] <= DRAM_DQ;
-                1: data[111:96]  <= DRAM_DQ;
-                2: data[95:80]   <= DRAM_DQ;
-                3: data[79:64]   <= DRAM_DQ;
-                4: data[63:48]   <= DRAM_DQ;
-                5: data[47:32]   <= DRAM_DQ;
-                6: data[31:16]   <= DRAM_DQ;
-                7: data[15:0]    <= DRAM_DQ;
+                1: data[127:112] <= DRAM_DQ;
+                2: data[111:96]  <= DRAM_DQ;
+                3: data[95:80]   <= DRAM_DQ;
+                4: data[79:64]   <= DRAM_DQ;
+                5: data[63:48]   <= DRAM_DQ;
+                6: data[47:32]   <= DRAM_DQ;
+                7: data[31:16]   <= DRAM_DQ;
+                8: data[15:0]    <= DRAM_DQ;
             endcase
             $display("[sdram_read] Burst[%0d] <= %h @ %0t", counter, DRAM_DQ, $time);
         end

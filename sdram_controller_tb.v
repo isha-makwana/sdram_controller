@@ -73,11 +73,16 @@ module sdram_controller_tb;
     .addr(DRAM_ADDR),
     .dq(DRAM_DQ),
     .ldqm(DRAM_LDQM),
-    .udqm(DRAM_UDQM)
+    .udqm(DRAM_UDQM),
+    .init_done(oinit_done)
   );
 
   // Clock generation (100 MHz)
   always #5 iclk = ~iclk;
+
+  always @(posedge iclk) begin
+    $display("[%0t] TB Monitor: CS_N=%b RAS_N=%b CAS_N=%b WE_N=%b ADDR=%h", $time, DRAM_CS_N, DRAM_RAS_N, DRAM_CAS_N, DRAM_WE_N, DRAM_ADDR);
+  end
 
   // Test sequence
   initial begin
@@ -126,5 +131,8 @@ module sdram_controller_tb;
     $display("[%0t] Test complete.", $time);
     $finish;
   end
+
+
+
 
 endmodule
