@@ -79,8 +79,10 @@ assign DRAM_DQ = sdram_write_enable ? sdram_write_data:
 //=======================================================
 //  Structural coding
 //=======================================================
-assign {write_ibank, write_irow, write_icolumn} = {iwrite_address, 3'b0};
-assign {read_ibank, read_irow, read_icolumn}    = {iread_address, 3'b0};
+assign {write_ibank, write_irow} = iwrite_address[21:0];
+assign write_icolumn = 10'd0;
+assign {read_ibank, read_irow} = iread_address[21:0];
+assign read_icolumn = 10'd0;
 
 assign owrite_ack                               = write_ack;
 assign oread_ack                                = read_ack;
