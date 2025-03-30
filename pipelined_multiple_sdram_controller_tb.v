@@ -63,6 +63,11 @@ module sdram_controller_tb;
     iwrite_req = 0; iread_req = 0;
     iwrite_address = 0; iread_address = 0;
     iwrite_data = 0;
+    op_start_time = 0;
+    op_end_time = 0;
+    total_start_time = 0;
+    total_end_time = 0;
+    i = 0;
 
     test_data[0] = 128'hDEADBEEFCAFEBABE123456789ABCDEF0;
     test_data[1] = 128'h0123456789ABCDEFFEDCBA9876543210;
