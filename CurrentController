@@ -1,3 +1,7 @@
+
+//
+
+
 `timescale 1ns / 1ps
 
 module sdram_controller(
@@ -32,15 +36,12 @@ module sdram_controller(
 // FIFO signals
 wire [149:0] write_fifo_rd_data;
 wire         write_fifo_full, write_fifo_empty;
-wire          write_fifo_rd_en;
+reg          write_fifo_rd_en;
 reg         write_fifo_wr_en;  // push when write requested
 reg [149:0] write_fifo_wr_data;
 reg [21:0] latched_write_address;
 reg [127:0] latched_write_data;
 reg [21:0] latched_read_address;
-reg write_fifo_rd_en_reg;
-reg read_fifo_rd_en_reg;
-
 
 // Instantiate write FIFO
 sdram_write_fifo write_fifo (
@@ -57,7 +58,7 @@ sdram_write_fifo write_fifo (
 // Read FIFO signals
 wire read_fifo_full, read_fifo_empty;
 wire [21:0] read_fifo_rd_data;
-wire  read_fifo_rd_en;
+reg  read_fifo_rd_en;
 reg  read_fifo_wr_en;
 reg  [21:0] read_fifo_wr_data;
 
@@ -85,7 +86,10 @@ localparam S_INIT       = 4'd0,
            S_WRITE_ACK  = 4'd5,
            S_READ_REQ   = 4'd6,
            S_READ_WAIT  = 4'd7,
-           S_READ_ACK   = 4'd8;
+           S_READ_ACK   = 4'd8,
+	   S_WRITE_POP  = 4'd9,
+           S_READ_POP   = 4'd10,
+	   S_READ_LATCH = 4'd11;
 
 reg  [3:0] state, next_state;
 
@@ -98,6 +102,10 @@ reg [2:0] mul_state;  // 001=init, 010=write, 100=read
 wire init_fin;
 wire write_fin;
 wire read_fin;
+reg        staged_write_valid;
+reg [21:0] staged_write_addr;
+reg [127:0] staged_write_data;
+
 
 // Tristate / data control signals
 wire [15:0] sdram_write_data;
@@ -132,22 +140,55 @@ always @(posedge iclk)
     else
         state <= next_state;
 
+// Control logic: push into FIFOs if space is available
+always @(posedge iclk) begin
+    if (ireset) begin
+        write_fifo_wr_en <= 0;
+        read_fifo_wr_en  <= 0;
+    end else begin
+        // Default disables
+        write_fifo_wr_en <= 0;
+        read_fifo_wr_en  <= 0;
+
+        if (staged_write_valid && !write_fifo_full) begin
+            write_fifo_wr_en   <= 1;
+            write_fifo_wr_data <= {staged_write_addr, staged_write_data};
+	    $display("[%0t] --> FROM Controller FIFO WR ENABLED", $time);
+        end
+
+        if (iread_req && !read_fifo_full) begin
+            read_fifo_wr_en   <= 1;
+            read_fifo_wr_data <= iread_address;
+        end
+    end
+end
+
 // FSM combinational logic
 always @(*) begin
     case (state)
         S_INIT:         next_state = S_WAIT_INIT;
         S_WAIT_INIT:    next_state = init_fin ? S_IDLE : S_WAIT_INIT;
         S_IDLE: begin
-            if (iwrite_req)       next_state = S_WRITE_REQ;
-            else if (iread_req)  next_state = S_READ_REQ;
-            else                 next_state = S_IDLE;
+            if (!write_fifo_empty)      next_state = S_WRITE_POP;
+            else if (!read_fifo_empty)  next_state = S_READ_POP;
+            else                        next_state = S_IDLE;
         end
+        S_WRITE_POP:    next_state = S_WRITE_REQ;
         S_WRITE_REQ:    next_state = S_WRITE_WAIT;
         S_WRITE_WAIT:   next_state = write_fin ? S_WRITE_ACK : S_WRITE_WAIT;
-        S_WRITE_ACK:    next_state = iread_req ? S_READ_REQ : (iwrite_req ? S_WRITE_REQ : S_IDLE);
+        S_WRITE_ACK:    next_state = (!write_fifo_empty) ? S_WRITE_POP :
+                                     (!read_fifo_empty)  ? S_READ_POP  : S_IDLE;
+	S_READ_POP: begin
+    		if (!read_fifo_empty)
+       		   next_state = S_READ_LATCH;
+   		 else
+                   next_state = S_IDLE;
+	end
+	S_READ_LATCH: next_state = S_READ_REQ;
         S_READ_REQ:     next_state = S_READ_WAIT;
         S_READ_WAIT:    next_state = read_fin ? S_READ_ACK : S_READ_WAIT;
-        S_READ_ACK:     next_state = iwrite_req ? S_WRITE_REQ : (iread_req ? S_READ_REQ : S_IDLE);
+        S_READ_ACK:     next_state = (!write_fifo_empty) ? S_WRITE_POP :
+                                     (!read_fifo_empty && read_fin)  ? S_READ_POP  : S_IDLE;
         default:        next_state = S_INIT;
     endcase
 end
@@ -158,11 +199,11 @@ always @(*) begin
     init_ireq = 0; write_ireq = 0; read_ireq = 0;
     write_ack = 0; read_ack = 0;
     mul_state = 3'b000;
-    write_fifo_wr_en   = 0;
-    write_fifo_wr_data = 150'd0;
+    
+    
 
-    read_fifo_wr_en    = 0;
-    read_fifo_wr_data = 22'd0;
+    write_fifo_rd_en   = 0;
+    read_fifo_rd_en    = 0;
 
     case (state)
         S_INIT: begin
@@ -174,36 +215,86 @@ always @(*) begin
         end
         S_IDLE: begin
             mul_state = 3'b001;
-	    // Capture read request into FIFO if it's available
-               if (iread_req && !read_fifo_full) begin
-			read_fifo_wr_en   = 1;
-			read_fifo_wr_data = iread_address;
-               end
-	       if (iwrite_req && !write_fifo_full) begin
-    			write_fifo_wr_en   = 1;
-    			write_fifo_wr_data = {iwrite_address, iwrite_data};
-	       end
+        end
+        S_WRITE_POP: begin
+            write_fifo_rd_en = 1;
         end
         S_WRITE_REQ: begin
-	    //write_fifo_rd_en = 1;
             write_ireq = 1;
             mul_state  = 3'b010;
         end
         S_WRITE_WAIT, S_WRITE_ACK: begin
-            mul_state  = 3'b010;
+            mul_state = 3'b010;
             if (state == S_WRITE_ACK) write_ack = 1;
         end
+        S_READ_POP: begin
+           read_fifo_rd_en = 1;  // Pulse for one cycle
+        end
+        S_READ_LATCH: begin
+           read_fifo_rd_en = 0;
+        //   latched_read_address = read_fifo_rd_data;  // Safely latch after FIFO has output valid data
+	end
         S_READ_REQ: begin
-            read_ireq  = 1;
-	    //read_fifo_rd_en = 1;
-            mul_state  = 3'b100;
+            read_ireq = 1;
+            mul_state = 3'b100;
+            $display("[%0t] >> Issuing Read to latched: ADDR=%h", $time, latched_read_address);
         end
         S_READ_WAIT, S_READ_ACK: begin
-            mul_state  = 3'b100;
+            mul_state = 3'b100;
             if (state == S_READ_ACK) read_ack = 1;
         end
     endcase
+
+$display("[%0t] FSM State: %s", $time, 
+    (state == S_INIT)       ? "S_INIT" :
+    (state == S_WAIT_INIT)  ? "S_WAIT_INIT" :
+    (state == S_IDLE)       ? "S_IDLE" :
+    (state == S_WRITE_REQ)  ? "S_WRITE_REQ" :
+    (state == S_WRITE_WAIT) ? "S_WRITE_WAIT" :
+    (state == S_WRITE_ACK)  ? "S_WRITE_ACK" :
+    (state == S_READ_REQ)   ? "S_READ_REQ" :
+    (state == S_READ_WAIT)  ? "S_READ_WAIT" :
+    (state == S_READ_ACK)   ? "S_READ_ACK"  : 
+    (state == S_WRITE_POP)  ? "S_WRITE_POP" :
+    (state == S_READ_POP)   ? "S_READ_POP" : "UNKNOWN"
+ 
+);
+
 end
+
+always @(posedge iclk) begin
+  if (ireset) begin
+    latched_read_address <= 0;
+  end else if (state == S_READ_LATCH) begin
+    latched_read_address <= read_fifo_rd_data;
+    $display("[%0t] >> Read FIFO latched in S_READ_LATCH: ADDR=%h", $time, read_fifo_rd_data);
+  end
+end
+
+always @(posedge iclk) begin
+    if (ireset) begin
+        staged_write_valid <= 0;
+    end else begin
+        // 1. Push to FIFO if staged is valid and FIFO has space
+        if (staged_write_valid && !write_fifo_full) begin
+            write_fifo_wr_en   <= 1;
+            write_fifo_wr_data <= {staged_write_addr, staged_write_data};
+            staged_write_valid <= 0;  // Clear stage after pushing
+        end else begin
+            write_fifo_wr_en <= 0;  // No push
+        end
+
+        // 2. If TB issues new write and stage is empty, latch it
+        if (iwrite_req && !staged_write_valid) begin
+            staged_write_valid <= 1;
+            staged_write_addr  <= iwrite_address;
+            staged_write_data  <= iwrite_data;
+        end
+    end
+end
+
+
+
 
 always @(posedge iclk) begin
   if (ireset) begin
@@ -212,34 +303,12 @@ always @(posedge iclk) begin
   end else if (write_fifo_rd_en) begin
     latched_write_address <= write_fifo_rd_data[149:128];
     latched_write_data    <= write_fifo_rd_data[127:0];
+    $display("[%0t] >> Write FIFO latched: ADDR=%h DATA=%h", $time, write_fifo_rd_data[149:128], write_fifo_rd_data[127:0]);
   end
+  
 end
 
-always @(posedge iclk) begin
-  if (ireset) begin
-    latched_read_address <= 0;
-  end else if (read_fifo_rd_en) begin
-    latched_read_address <= read_fifo_rd_data;
-  end
-end
 
-always @(posedge iclk) begin
-  if (ireset)
-    write_fifo_rd_en_reg <= 0;
-  else
-    write_fifo_rd_en_reg <= (state == S_WRITE_REQ);
-end
-
-assign write_fifo_rd_en = write_fifo_rd_en_reg;
-
-always @(posedge iclk) begin
-  if (ireset)
-    read_fifo_rd_en_reg <= 0;
-  else
-    read_fifo_rd_en_reg <= (state == S_READ_REQ);
-end
-
-assign read_fifo_rd_en = read_fifo_rd_en_reg;
 
 always @(posedge iclk) begin
   if (state == S_IDLE && iwrite_req)
@@ -253,6 +322,48 @@ always @(posedge iclk) begin
 
   if (state == S_WRITE_REQ)
     $display("[%0t] --> S_WRITE_REQ: bank = %h, row = %h", $time, write_ibank, write_irow);
+
+
+
+//read che debug statements
+  if (state == S_IDLE && iread_req)
+    $display("[%0t] TB pushed: ADDR = %h", $time, iread_address);
+
+  if (read_fifo_wr_en)
+    $display("[%0t] FIFO_WR_READ: ADDR = %h", $time, iread_address);
+
+  if (read_fifo_rd_en)
+    $display("[%0t] FIFO_RD_READ:", $time);
+
+  if (state == S_READ_REQ)
+    $display("[%0t] --> S_READ_REQ: bank = %h, row = %h", $time, read_ibank, read_irow);
+
+
+
+  // Log every state transition and latching
+  $display("[%0t] Current State: %d, Next State: %d", $time, state, next_state);
+
+  // Log write FIFO status
+  $display("[%0t] WRITE_FIFO | full=%b empty=%b wr_en=%b rd_en=%b", $time, write_fifo_full, write_fifo_empty, write_fifo_wr_en, write_fifo_rd_en);
+
+// Log read FIFO status
+$display("[%0t] READ_FIFO  | full=%b empty=%b wr_en=%b rd_en=%b", $time, read_fifo_full, read_fifo_empty, read_fifo_wr_en, read_fifo_rd_en);
+
+// Log latched address and data
+$display("[%0t] Latched Write Addr: %h | Data: %h", $time, latched_write_address, latched_write_data);
+$display("[%0t] Latched Read Addr : %h", $time, latched_read_address);
+
+// Log ack pulses
+if (write_ack) $display("[%0t] --> WRITE_ACK pulse issued", $time);
+if (read_ack)  $display("[%0t] --> READ_ACK pulse issued", $time);
+
+if (staged_write_valid)
+  $display("[%0t] Staged valid: ADDR=%h DATA=%h", $time, staged_write_addr, staged_write_data);
+
+
+if (iwrite_req && staged_write_valid)
+  $display("[%0t] WARNING: TB is sending write but stage is full. Potential loss!", $time);
+
 end
 
 // SDRAM Submodules
