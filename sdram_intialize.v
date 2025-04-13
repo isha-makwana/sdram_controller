@@ -66,25 +66,29 @@ assign ref_cycles = (counter >= 16);
 assign init_begin_counter = (counter >= 10000);
 //assign init_begin_counter = (counter >= 12);
 
-always @(posedge iclk)
-begin
-    if (ireset)
+always @(posedge iclk) begin
+    if (ireset) begin
         $display("[%0t] Reset Asserted", $time);
-    else
-        case (state)
-            8'b00000001: $display("[%0t] IDLE", $time);
-            8'b00000010: $display("[%0t] NOP - Power-Up Wait (counter = %0d)", $time, counter);
-            8'b00000100: $display("[%0t] PRECHARGE ALL", $time);
-            8'b00001000: $display("[%0t] AUTO REFRESH 1", $time);
-            8'b00010000: $display("[%0t] WAIT REFRESH 1 (counter = %0d)", $time, counter);
-            8'b00100000: $display("[%0t] LOAD MODE REGISTER", $time);
-            8'b01000000: $display("[%0t] WAIT MODE REGISTER", $time);
-            8'b10000000: $display("[%0t] SDRAM READY (Initialization Done)", $time);
-        endcase
+    end else begin
+        $display("[%0t] [sdram_init] State: %b, CMD: %b, ADDR: %h, BANK: %b, READY: %b", $time, state, command, address, bank, ready);
 
-    $display("[%0t] CMD: %b, ADDR: %h, BANK: %b, READY: %b", $time, command, address, bank, ready);
+        if (command == 4'b0000) begin
+            $display("[%0t] [sdram_init] LOAD MODE REGISTER command issued", $time);
+        end else if (command == 4'b0001) begin
+            $display("[%0t] [sdram_init] AUTO REFRESH command", $time);
+        end else if (command == 4'b0010) begin
+            $display("[%0t] [sdram_init] PRECHARGE ALL command", $time);
+        end else if (command == 4'b0011) begin
+            $display("[%0t] [sdram_init] ACTIVE command ? SHOULD NEVER HAPPEN HERE", $time);
+        end else if (command == 4'b0100) begin
+            $display("[%0t] [sdram_init] !!!! WRITE COMMAND !!!! ? SHOULD NOT BE HERE", $time);
+        end else if (command == 4'b0111) begin
+            $display("[%0t] [sdram_init] NOP or IDLE", $time);
+        end else begin
+            $display("[%0t] [sdram_init] Unknown CMD", $time);
+        end
+    end
 end
-
 
 always @(posedge iclk)
 begin

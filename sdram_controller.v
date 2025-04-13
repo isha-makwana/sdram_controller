@@ -42,7 +42,7 @@ reg             read_ack    = 1'b0;
 reg             write_ack   = 1'b0;
 
 //Next opperation priority - 0 = Write, 1 = Read
-reg             next_prior  = 1'b0;
+reg		next_prior  = 1'b0;
 
 //SDRAM INITLIZE MODULE
 reg             init_ireq   = 1'b0;
@@ -57,6 +57,11 @@ wire     [9:0]  write_icolumn;
 wire     [1:0]  write_ibank;
 wire            write_fin;
 
+// New wires for write tristate
+wire    [15:0]  sdram_write_data;
+wire            sdram_write_enable;
+wire		read_enable;
+
 //SDRAM READ MODULE
 reg             read_ireq   = 1'b0;
 wire            read_ienb;
@@ -65,12 +70,19 @@ wire     [9:0]  read_icolumn;
 wire     [1:0]  read_ibank;
 wire            read_fin;
 
+//=======================================================
+//  Tristate assignment for DRAM_DQ
+//=======================================================
+assign DRAM_DQ = sdram_write_enable ? sdram_write_data:
+		 read_enable        ? 16'bz : 16'bz;
 
 //=======================================================
 //  Structural coding
 //=======================================================
-assign {write_ibank, write_irow, write_icolumn} = {iwrite_address, 3'b0};
-assign {read_ibank, read_irow, read_icolumn}    = {iread_address, 3'b0};
+assign {write_ibank, write_irow} = iwrite_address[21:0];
+assign write_icolumn = 10'd0;
+assign {read_ibank, read_irow} = iread_address[21:0];
+assign read_icolumn = 10'd0;
 
 assign owrite_ack                               = write_ack;
 assign oread_ack                                = read_ack;
@@ -294,6 +306,9 @@ sdram_write sdram_write (
     .ibank(write_ibank),
     .idata(iwrite_data),
     .ofin(write_fin),
+    // New connections
+    .write_data_out(sdram_write_data),
+    .write_enable(sdram_write_enable),
     
     .DRAM_ADDR(DRAM_ADDR),
     .DRAM_BA(DRAM_BA),
@@ -320,6 +335,7 @@ sdram_read sdram_read (
     .ibank(read_ibank),
     .odata(oread_data),
     .ofin(read_fin),
+    .read_enable(read_enable),
     
     .DRAM_ADDR(DRAM_ADDR),
     .DRAM_BA(DRAM_BA),
