@@ -63,7 +63,7 @@ The SDRAM controller is built from the ground up using modular FSMs and signal a
 
 #### ✅ Waveform Snapshot
 
-![Waveform Simulation](Waveform_QuestaSim_PipelinedController.jpeg)
+![Waveform Simulation](Images/Waveform_QuestaSim_PipelinedController.jpeg)
 
 - **`iwrite_req`** triggers burst writes to sequential addresses.
 - **`iread_req`** follows with reads from the same addresses.
